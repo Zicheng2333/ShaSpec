@@ -290,102 +290,103 @@ def main():
     best_acc = -1
 
     start_time = timeit.default_timer()
+    num_epochs = args.num_epochs
+    global_iter = 10000
 
-    for i_iter, batch in enumerate(tqdm(trainloader, desc="Training Progress")):
-        i_iter += args.start_iters
-        if i_iter >= args.num_steps:
-            break
+    for epoch in range(num_epochs):
+        print(f"Epoch [{epoch + 1}/{num_epochs}]")
 
-        # 学习率衰减
-        lr = adjust_learning_rate(optimizer, i_iter, args.learning_rate, args.num_steps, args.power)
+        # 遍历整个训练集（带进度条显示）
+        for i_iter, batch in enumerate(tqdm(trainloader, desc=f"Epoch {epoch + 1}/{num_epochs}")):
+            global_iter += 1  # 全局迭代次数递增
 
-        labels = batch["label"].to(device)
-        optimizer.zero_grad()
+            # 根据全局迭代次数更新学习率（这里总步数可以设为：num_epochs * len(trainloader)）
+            lr = adjust_learning_rate(optimizer, global_iter, args.learning_rate, num_epochs * len(trainloader),
+                                      args.power)
 
-        # 前向传播
-        logits, shared_info, spec_info = model(
-            **batch
-        )
+            labels = batch["label"].to(device)
+            optimizer.zero_grad()
 
-        # 计算任务损失
-        if logits.size(-1) == 1:
-            task_loss = criterion_cls(logits.view(-1), labels.float())
-        else:
-            task_loss = nn.CrossEntropyLoss()(logits, labels.long())
+            # 前向传播（假设 batch 内数据名称已和模型输入匹配）
+            logits, shared_info, spec_info = model(**batch)
 
-        # Distribution Alignment (三模态)
-        shared_info = replace_zero_vectors(shared_info)
-        term_shared = (distribution_loss(shared_info[0], shared_info[1]) +
-                       distribution_loss(shared_info[1], shared_info[2]) +
-                       distribution_loss(shared_info[2], shared_info[0]))
+            # 计算任务损失
+            if logits.size(-1) == 1:
+                task_loss = criterion_cls(logits.view(-1), labels.float())
+            else:
+                task_loss = nn.CrossEntropyLoss()(logits, labels.long())
 
-        # Domain Classification (三模态)
-        if isinstance(spec_info, list) and len(spec_info) == 3:
-            B = spec_info[0].size(0)
-            cat_spec = torch.cat(spec_info, dim=0)  # [3B, feat_dim]
-            spec_labels = torch.cat([
-                torch.zeros(B, dtype=torch.long),
-                torch.ones(B, dtype=torch.long),
-                2 * torch.ones(B, dtype=torch.long)
-            ], dim=0).to(device)
-            term_spec = loss_domain_cls(cat_spec, spec_labels)
-        else:
-            term_spec = 0.0
+            # Distribution Alignment (三模态)
+            shared_info = replace_zero_vectors(shared_info)
+            term_shared = (distribution_loss(shared_info[0], shared_info[1]) +
+                           distribution_loss(shared_info[1], shared_info[2]) +
+                           distribution_loss(shared_info[2], shared_info[0]))
 
-        # 总损失
-        loss_all = task_loss + alpha * term_shared + beta * term_spec
-        loss_all.backward()
-        optimizer.step()
+            # Domain Classification (三模态)
+            if isinstance(spec_info, list) and len(spec_info) == 3:
+                B = spec_info[0].size(0)
+                cat_spec = torch.cat(spec_info, dim=0)  # [3B, feat_dim]
+                spec_labels = torch.cat([
+                    torch.zeros(B, dtype=torch.long),
+                    torch.ones(B, dtype=torch.long),
+                    2 * torch.ones(B, dtype=torch.long)
+                ], dim=0).to(device)
+                term_spec = loss_domain_cls(cat_spec, spec_labels)
+            else:
+                term_spec = 0.0
 
-        # 打印日志
-        if i_iter % 100 == 0:
-            writer.add_scalar('learning_rate', lr, i_iter)
-            writer.add_scalar('loss_all', loss_all.item(), i_iter)
-            writer.add_scalar('task_loss', task_loss.item(), i_iter)
-            writer.add_scalar('term_shared', term_shared.item(), i_iter)
-            if not isinstance(term_spec, float):
-                writer.add_scalar('term_spec', term_spec.item(), i_iter)
+            # 总损失
+            loss_all = task_loss + alpha * term_shared + beta * term_spec
+            loss_all.backward()
+            optimizer.step()
 
-            print(f"Iter={i_iter}/{args.num_steps}, lr={lr:.6f}, task_loss={task_loss.item():.4f}, "
-                  f"shared_loss={term_shared.item():.4f}, spec_loss={term_spec}, total={loss_all.item():.4f}")
+            # 日志记录（每 100 次全局迭代打印一次）
+            if global_iter % 100 == 0:
+                writer.add_scalar('learning_rate', lr, global_iter)
+                writer.add_scalar('loss_all', loss_all.item(), global_iter)
+                writer.add_scalar('task_loss', task_loss.item(), global_iter)
+                writer.add_scalar('term_shared', term_shared.item(), global_iter)
+                if not isinstance(term_spec, float):
+                    writer.add_scalar('term_spec', term_spec.item(), global_iter)
 
-        # 验证 & 保存
-        if (not args.train_only) and (i_iter % args.val_pred_every == args.val_pred_every - 1):
+                print(f"Iter={global_iter}, lr={lr:.6f}, task_loss={task_loss.item():.4f}, "
+                      f"shared_loss={term_shared.item():.4f}, spec_loss={term_spec}, total={loss_all.item():.4f}")
+
+        # 每个 epoch 结束后执行验证和保存
+        if not args.train_only:
             print("[INFO] Validating ...")
             val_acc, f1, roc_auc, pr_auc = evaluate_model(model, valloader, device)
-            writer.add_scalar('Val_Accuracy', val_acc, i_iter)
-            print(f"Validation @ iter {i_iter}: accuracy = {val_acc:.2f}, f1 = {f1}, roc_auc = {roc_auc}, pr_auc = {pr_auc}")
+            writer.add_scalar('Val_Accuracy', val_acc, global_iter)
+            print(
+                f"Validation @ epoch {epoch + 1}: accuracy = {val_acc:.2f}, f1 = {f1}, roc_auc = {roc_auc}, pr_auc = {pr_auc}")
 
-            # 保存 best
+            # 保存 best 模型
             if val_acc > best_acc:
                 best_acc = val_acc
                 print("[INFO] Saving best model ...")
                 checkpoint = {
                     'model': model,
                     'optimizer': optimizer.state_dict(),
-                    'iter': i_iter
+                    'iter': global_iter
                 }
                 torch.save(checkpoint, osp.join(args.snapshot_dir, 'best.pth'))
 
-            # 保存 last
+            # 同时保存 last 模型
             checkpoint = {
                 'model': model,
                 'optimizer': optimizer.state_dict(),
-                'iter': i_iter
+                'iter': global_iter
             }
             torch.save(checkpoint, osp.join(args.snapshot_dir, 'last.pth'))
 
-    # 训练结束，保存 final
+    # 训练结束后保存 final 模型
     print("[INFO] Training finished, saving final model...")
     checkpoint = {
         'model': model,
         'optimizer': optimizer.state_dict(),
-        'iter': args.num_steps
+        'iter': global_iter
     }
     torch.save(checkpoint, osp.join(args.snapshot_dir, 'final.pth'))
-
-    end_time = timeit.default_timer()
-    print(f"Total training time: {end_time - start_time:.1f} seconds.")
 
 
 if __name__ == '__main__':

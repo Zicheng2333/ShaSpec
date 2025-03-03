@@ -121,7 +121,7 @@ class DualNet_SS(nn.Module):
 
     def __init__(self, args,
                  tokenizer,
-                 hidden_dim=128,
+                 hidden_dim=256,
                  out_dim=1,
                  use_compos=True):
         super().__init__()
