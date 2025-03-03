@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+#标准训练模式
 time=$(date "+%Y%m%d-%H%M%S")
 name=BraTS18_ShaSpec_[80,160,160]_SGD_b1_lr-2_alpha.1_beta.02_trainOnly
 
@@ -22,7 +23,7 @@ CUDA_VISIBLE_DEVICES=$1 python train_SS.py \
 --reload_path=snapshots/tmp/final.pth \
 --reload_from_checkpoint=False > logs/${time}_train_${name}.log
 
-
+#随机模态训练模式
 time=$(date "+%Y%m%d-%H%M%S")
 name=BraTS18_ShaSpec_[80,160,160]_SGD_b1_lr-2_alpha.1_beta.02_trainOnly_rand_mode
 

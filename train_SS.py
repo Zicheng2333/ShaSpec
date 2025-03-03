@@ -246,6 +246,8 @@ def main():
 
         loss_D = loss.DiceLoss4BraTS().to(device)
         loss_BCE = loss.BCELoss4BraTS().to(device)
+        #这两个损失都是用于欧分割任务的
+
         loss_domain_cls = loss.DomainClsLoss().to(device)
         distribution_loss = nn.L1Loss()
         # distribution_loss = nn.MSELoss()
