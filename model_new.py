@@ -151,7 +151,7 @@ class DualNet_SS(nn.Module):
             num_layers=args.rnn_layers,
             rnn_type = args.rnn_type,
             dropout=args.dropout,
-            bidirectional=args.rnn_bidircetional,
+            bidirectional=args.rnn_bidirectional,
             device="cuda")
         # 如果你不在GPU上运行，去掉 device="cuda" 或改成当前设备
 
@@ -179,7 +179,6 @@ class DualNet_SS(nn.Module):
                 labvectors_flag,
                 discharge,
                 discharge_flag,
-
                 **kwargs,):
         """
         参数命名示例:

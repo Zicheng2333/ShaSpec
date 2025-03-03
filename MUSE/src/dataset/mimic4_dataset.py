@@ -3,8 +3,11 @@ import os
 import torch
 from torch.utils.data import Dataset
 
-from src.dataset.tokenizer import MIMIC4Tokenizer
-from src.utils import processed_data_path, read_txt, load_pickle
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+#from src.dataset import tokenizer 
+from ..utils import processed_data_path, read_txt, load_pickle
 
 
 class MIMIC4Dataset(Dataset):
