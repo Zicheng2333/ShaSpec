@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 
-
 ########################################
 # 示例：引用你已有的 Encoder
 # 假设你已经有以下类可以直接使用:
