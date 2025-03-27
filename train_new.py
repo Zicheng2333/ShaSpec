@@ -2,7 +2,6 @@ import argparse
 import sys
 import os
 import os.path as osp
-import timeit
 from tqdm import tqdm
 
 import torch
@@ -29,7 +28,7 @@ from xzc.MUSE.src.dataset.utils import mimic4_collate_fn
 
 # 导入你的损失函数和模型
 import loss_Dual as loss
-from model_new import DualNet_SS
+from model_new2 import DualNet_SS
 
 
 ###############################################################################
@@ -58,7 +57,7 @@ def get_arguments():
     # 数据集与任务相关参数
     parser.add_argument("--task", type=str, default='mortality',
                         help="Task name: 'mortality' or 'readmission'")
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--load_no_label", type=str2bool, default=False,
                         help="Whether to load no-label samples (usually not used).")
@@ -70,14 +69,14 @@ def get_arguments():
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--power", type=float, default=0.9)
-    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--random_seed", type=int, default=999)
 
     # 模式设置（是否仅训练、不评估等）
     parser.add_argument("--train_only", action="store_true")
 
     # 三模态相关参数（来自 MUSE）
-    parser.add_argument("--embedding_size", type=int, default=256)
+    parser.add_argument("--embedding_size", type=int, default=128)
     parser.add_argument("--code_pretrained_embedding", type=bool, default=True)
     parser.add_argument("--code_layers", type=int, default=2)
     parser.add_argument("--code_heads", type=int, default=2)
@@ -110,9 +109,7 @@ def evaluate_model(model, dataloader, device):
         for batch in tqdm(dataloader, desc="Processing Batches"):
             labels = batch["label"].to(device)
             logits, shared_info, spec_info = model(
-                codes=batch["codes"].to(device),
-                labvectors=batch["labvectors"].to(device),
-                discharge=batch["discharge"],
+                **batch
             )
             # 根据输出维度判断使用哪种方式
             if logits.size(-1) == 1:
@@ -243,6 +240,7 @@ def main():
         num_workers=args.num_workers,
         drop_last=False,
         pin_memory=True,
+        collate_fn=mimic4_collate_fn,
     )
 
     #########################################################
@@ -271,13 +269,15 @@ def main():
     distribution_loss = nn.L1Loss()
 
     # 优化器
-    optimizer = optim.SGD(
+    # 优化器修改成Adam试试，本来是SGD
+    optimizer = optim.Adam(
         model.parameters(),
         lr=args.learning_rate,
-        momentum=args.momentum,
+        #momentum=args.momentum,
         weight_decay=args.weight_decay,
-        nesterov=True
+        #nesterov=True
     )
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
 
     #########################################################
     # C. 训练循环
@@ -289,9 +289,8 @@ def main():
     beta = 0.02  # specific domain loss weight
     best_acc = -1
 
-    start_time = timeit.default_timer()
     num_epochs = args.num_epochs
-    global_iter = 10000
+    global_iter = 0
 
     for epoch in range(num_epochs):
         print(f"Epoch [{epoch + 1}/{num_epochs}]")
@@ -313,8 +312,11 @@ def main():
             # 计算任务损失
             if logits.size(-1) == 1:
                 task_loss = criterion_cls(logits.view(-1), labels.float())
+                scheduler.step(task_loss)
+                
             else:
-                task_loss = nn.CrossEntropyLoss()(logits, labels.long())
+                #task_loss = nn.CrossEntropyLoss()(logits, labels.long())
+                raise ValueError('logits size should be 1!')
 
             # Distribution Alignment (三模态)
             shared_info = replace_zero_vectors(shared_info)
@@ -336,7 +338,8 @@ def main():
                 term_spec = 0.0
 
             # 总损失
-            loss_all = task_loss + alpha * term_shared + beta * term_spec
+            #loss_all = task_loss + alpha * term_shared + beta * term_spec
+            loss_all = task_loss
             loss_all.backward()
             optimizer.step()
 

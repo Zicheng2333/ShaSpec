@@ -42,7 +42,7 @@ class CompositionalLayer(nn.Module):
 # MIMIC encoder
 ########################################
 class MIMICEncoder(nn.Module):
-    def __init__(self, input_dim=256, hidden_dim=256, output_dim=256):
+    def __init__(self, input_dim=128, hidden_dim=128, output_dim=128):
         """
         构造一个用于 MIMIC-IV 数据的 encoder 模块，
         模拟 U_Res3D_enc 的架构思路：
@@ -98,7 +98,7 @@ class MIMICEncoder(nn.Module):
         feature_aspp = self.fc_aspp(global_feature)  # 进一步提取的特征
         feature_out = self.fc_out(feature_aspp)  # 映射到输出空间
 
-        return feature_out, global_feature
+        return feature_out
 
 ########################################
 # Domain-Specific / Domain Classification
@@ -120,7 +120,7 @@ class DualNet_SS(nn.Module):
 
     def __init__(self, args,
                  tokenizer,
-                 hidden_dim=256,
+                 hidden_dim=128,
                  out_dim=1,
                  use_compos=True):
         super().__init__()
@@ -200,12 +200,18 @@ class DualNet_SS(nn.Module):
         code_ft = self.code_enc(codes, types, age, gender, ethnicity)
         lab_ft = self.lab_enc(labvectors)
 
-        text_ft[discharge_flag==0]=0
-        code_ft[codes_flag==0]=0
-        lab_ft[labvectors_flag==0]=0
+        #text_ft[discharge_flag==0]=0
+        #code_ft[codes_flag==0]=0
+        #lab_ft[labvectors_flag==0]=0
+        mask = discharge_flag.unsqueeze(-1).float()
+        text_ft = text_ft * mask
+
+        code_ft = code_ft * codes_flag.unsqueeze(-1).float()
+        lab_ft  = lab_ft  * labvectors_flag.unsqueeze(-1).float()
 
         # 2) 定义 "shared" 与 "specific" 特征
-        shared_text = self.mimic_enc(text_ft)
+        
+        shared_text = self.mimic_enc(text_ft) #text是一个tuple，我们只选取第一个元素
         shared_code = self.mimic_enc(code_ft)
         shared_lab = self.mimic_enc(lab_ft)
 
